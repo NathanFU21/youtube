@@ -8,68 +8,62 @@
 	<link rel="preconnect" href="https://www.youtube.com" crossorigin>
 	<link rel="preconnect" href="https://www.youtube-nocookie.com" crossorigin>
 	<style>
-		html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }
-		#p { width:100%; height:100%; position:fixed; top:0; left:0; background:#000; }
+		html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000}
+		#p,#vid{width:100%;height:100%;position:fixed;top:0;left:0;background:#000;object-fit:contain}
+		#vid{display:none}
 	</style>
 </head>
 <body>
 	<div id="p"></div>
+	<video id="vid" playsinline muted></video>
 	<script>
-		// Read v (video id) + t (start seconds) from the URL hash, then query string.
-		function getP(name) {
-			var h = window.location.hash.substring(1);
-			if (h) { var hp = new URLSearchParams(h); if (hp.get(name)) return hp.get(name); }
-			var q = new URLSearchParams(window.location.search);
-			return q.get(name);
+		function getP(n){
+			var h=window.location.hash.substring(1);
+			if(h){var hp=new URLSearchParams(h); if(hp.get(n)!==null) return hp.get(n);}
+			var q=new URLSearchParams(window.location.search); return q.get(n);
+		}
+		function b64urlDecode(s){ try{ s=s.replace(/-/g,'+').replace(/_/g,'/'); while(s.length%4)s+='='; return atob(s);}catch(e){return '';} }
+
+		var vidEl=document.getElementById('vid');
+		var mode=null;            // 'yt' | 'file'
+		var player=null, ready=false;
+		var VARS={controls:0,rel:0,loop:0,disablekb:1,enablejsapi:1,muted:1,cc_load_policy:0,iv_load_policy:3,autoplay:1,modestbranding:1,playsinline:1};
+
+		function showYT(){ mode='yt'; vidEl.style.display='none'; document.getElementById('p').style.display='block'; }
+		function showFile(){ mode='file'; document.getElementById('p').style.display='none'; vidEl.style.display='block'; }
+
+		// ---- YouTube ----
+		var tag=document.createElement('script'); tag.src="https://www.youtube.com/iframe_api"; document.head.appendChild(tag);
+		function onYouTubeIframeAPIReady(){
+			var vid=getP('v');
+			var f=getP('f');
+			var t=Math.max(0, parseFloat(getP('t'))||0);
+			player=new YT.Player('p',{height:'100%',width:'100%',videoId:(vid&&/^[a-zA-Z0-9_-]{11}$/.test(vid))?vid:'dQw4w9WgXcQ',
+				host:'https://www.youtube-nocookie.com',
+				playerVars:Object.assign({},VARS,{start:Math.floor(t)}),
+				events:{onReady:function(){ ready=true; try{player.unloadModule('captions');}catch(e){}
+					if(f){ gp.loadFile(f,t); } else { showYT(); if(t>0)player.seekTo(t,true); player.playVideo(); } }}});
 		}
 
-		var tag = document.createElement('script');
-		tag.src = "https://www.youtube.com/iframe_api";
-		document.head.appendChild(tag);
-
-		var player = null, ready = false;
-		var VARS = {
-			controls: 0, rel: 0, loop: 0, disablekb: 1, enablejsapi: 1,
-			muted: 1, cc_load_policy: 0, iv_load_policy: 3, autoplay: 1,
-			modestbranding: 1, playsinline: 1
+		// ---- shared control surface ----
+		window.gp={
+			load:function(id,t){ showYT(); if(ready&&player){ player.loadVideoById(id,t||0); player.playVideo(); } },
+			loadFile:function(b64,t){ var url=b64urlDecode(b64); if(!url)return; showFile();
+				if(ready&&player&&player.stopVideo){try{player.stopVideo();}catch(e){}}
+				vidEl.src=url; vidEl.currentTime=t||0; vidEl.muted=true; var pr=vidEl.play(); if(pr&&pr.catch)pr.catch(function(){}); },
+			vol:function(v){
+				if(mode==='file'){ vidEl.muted=(v<=0); vidEl.volume=Math.max(0,Math.min(1,v/100)); return; }
+				if(ready&&player){ if(v<=0){player.mute();} else {if(player.isMuted())player.unMute(); player.setVolume(v);} }
+			},
+			seek:function(t){ if(mode==='file'){ vidEl.currentTime=t; } else if(ready&&player){ player.seekTo(t,true);} },
+			poke:function(){
+				if(mode==='file'){ if(vidEl.paused){ var pr=vidEl.play(); if(pr&&pr.catch)pr.catch(function(){}); } return; }
+				if(ready&&player&&player.getPlayerState){ var st=player.getPlayerState(); if(st!==1&&st!==3){ player.playVideo(); } }
+			}
 		};
 
-		function onYouTubeIframeAPIReady() {
-			var vid = getP('v');
-			if (!vid || !/^[a-zA-Z0-9_-]{11}$/.test(vid)) vid = 'dQw4w9WgXcQ';
-			var t = Math.max(0, parseFloat(getP('t')) || 0);
-
-			player = new YT.Player('p', {
-				height: '100%', width: '100%', videoId: vid,
-				host: 'https://www.youtube-nocookie.com',
-				playerVars: Object.assign({}, VARS, { start: Math.floor(t) }),
-				events: {
-					onReady: function () {
-						ready = true;
-						try { player.unloadModule('captions'); } catch (e) {}
-						if (t > 0) player.seekTo(t, true);
-						player.playVideo();
-					}
-				}
-			});
-
-			// Control surface the GMod entity drives via RunJavascript.
-			window.gp = {
-				load: function (id, t) { if (ready && player) { player.loadVideoById(id, t || 0); player.playVideo(); } },
-				vol:  function (v) {
-					if (!ready || !player) return;
-					if (v <= 0) { player.mute(); }
-					else { if (player.isMuted()) player.unMute(); player.setVolume(v); }
-				},
-				seek: function (t) { if (ready && player) player.seekTo(t, true); },
-				poke: function () {
-					if (ready && player && player.getPlayerState) {
-						var st = player.getPlayerState();
-						if (st !== 1 && st !== 3) player.playVideo();
-					}
-				}
-			};
-		}
+		// If we opened straight to a file (no need to wait for YT API)
+		(function(){ var f=getP('f'); if(f){ var t=Math.max(0,parseFloat(getP('t'))||0); showFile(); var url=b64urlDecode(f); if(url){ vidEl.src=url; vidEl.currentTime=t; var pr=vidEl.play(); if(pr&&pr.catch)pr.catch(function(){}); } } })();
 	</script>
 </body>
 </html>
